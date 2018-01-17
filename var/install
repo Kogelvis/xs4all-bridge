@@ -1,0 +1,84 @@
+#!/bin/sh
+# author / code source: koyaanisqatsi@ip-phone-forum.de
+#
+# V1.03 / 02.08.2015
+#
+# Prepare and starting telnetd
+# Tested on: 7360, 7360SL, 7390, 7490, 7272
+# For every step a function will be defined
+# They are called at the end of the script
+#
+# start ctlmgr if stopped
+rsctl () {
+$(ps |  grep -v grep | grep -q ctlmgr) ||  ctlmgr
+}
+#
+# prepare and start telnetd
+rstd () {
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+# based on code by PeterPawn ip-phone-forum.de
+cd /var/tmp
+cp -R /usr/sbin /var/tmp/usersbin
+mount -o bind usersbin /usr/sbin
+ln -sf /bin/busybox usersbin/telnetd
+ln -sf /bin/busybox usersbin/inetd
+ln -sf /bin/busybox usersbin/brctl
+ln -sf /bin/busybox usersbin/chroot
+/usr/sbin/telnetd -l /sbin/ar7login -p 23
+}
+#
+# starting aura, usb, dsld, capitcp, inetd, aha, phonebook, faxd, voipd and telefon
+rssys () {
+/bin/sh /etc/hotplug/aura start
+/bin/sh /etc/init.d/rc.usbhost start
+/sbin/udevadm trigger
+/bin/sh /etc/init.d/rc.net
+/bin/sh /etc/init.d/S48-configd
+/bin/sh /etc/init.d/S73-capitcp
+/bin/sh /etc/init.d/S75-inetd
+/bin/sh /etc/init.d/S78-aha
+/usr/bin/pbd
+/usr/bin/faxd -a
+/bin/voipd
+/usr/bin/telefon -a127.0.0.1
+if [ -f /var/tmp/load_userman_mod.sh ]; then
+  /var/tmp/load_userman_mod.sh ; sleep 1 ; usermand ; contfiltd
+fi
+}
+#
+# stop delayed reboot from firmwarecfg
+cleanup () {
+rpid_name=/var/run/delayed_reboot.pid
+if test -e $rpid_name; then
+        rpid=$(cat $rpid_name)
+        rm $rpid_name 2>/dev/null
+        [ ${#rpid} -gt 0 ] && kill -TERM $rpid
+fi
+/bin/rm /var/tmp/fw_ip
+/bin/rm /var/tmp/firmware_update_started
+/bin/rm /var/tmp/firmware_stream_result
+/bin/rm /var/tmp/firmware_error_status
+/bin/rm /var/tmp/install_out.log
+/bin/rm /var/tmp/install_error.log
+# Webinterface warning message clean up
+echo "clear_id 87" > /proc/tffs
+
+/bin/sleep 10
+/usr/bin/killall dsld telefon voipd pbd
+/bin/sleep 10
+/usr/sbin/brctl addif lan ptm_vr9
+/sbin/ifconfig ptm_vr9 up
+}
+#
+# Now calling the functions
+rsctl
+rstd
+rssys
+cleanup
+
+#
+# kill firmwarecfg or box will reboot after about one minute
+/bin/update_led_off
+/usr/bin/killall firmwarecfg
+
+exit 1
